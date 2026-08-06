@@ -41,4 +41,12 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     for (const nomeSala in salas) {
       salas[nomeSala].jogadores = salas[nomeSala].jogadores.filter(id => id !== socket.id);
-      if (s
+      if (salas[nomeSala].jogadores.length === 0) delete salas[nomeSala];
+    }
+    io.emit('lista_salas', Object.keys(salas));
+  });
+});
+
+const listener = server.listen(process.env.PORT, () => {
+  console.log('Servidor rodando na porta ' + listener.address().port);
+});

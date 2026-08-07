@@ -733,6 +733,8 @@ let camYaw = Math.PI;
 let camPitch = 0;
 let firstPerson = false;
 let gameMode = 'survival';
+let remotePlayers = {}; // id -> { mesh, targetPos, targetRotY }
+let posUpdateAccum = 0;
 let playAreaRadius = WORLD_RADIUS;
 let running = false, gameOver = true;
 let attackCooldown = 0, dashCooldown = 0, dashTimer = 0, invuln = 0;
@@ -3249,6 +3251,7 @@ function beginImpostorRound(){
   items.forEach(i=>scene.remove(i.mesh)); items=[];
   particles.forEach(p=>scene.remove(p.pts)); particles=[];
   questFragments.forEach(f=>{ scene.remove(f.mesh); scene.remove(f.beam); }); questFragments=[];
+  clearRemotePlayers();
   if(impostor){ impostor.bots.forEach(b=>scene.remove(b.mesh)); }
   if(hideSeek){ hideSeek.bots.forEach(b=>scene.remove(b.mesh)); hideSeek=null; }
   document.getElementById('hsHud').classList.add('hidden');
@@ -4998,6 +5001,14 @@ function animate(){
     updateParticles(dt);
     updateBubble(dt);
     updateCompanion(dt);
+    updateRemotePlayers(dt);
+    if(currentRoomId){
+      posUpdateAccum += dt;
+      if(posUpdateAccum > 0.1){
+        posUpdateAccum = 0;
+        socket.emit('atualizarPosicao', { x: player.position.x, z: player.position.z, rotY: player.rotation.y });
+      }
+    }
     if(gameMode==='impostor'){
       updateImpostorMode(dt);
     } else if(gameMode==='hideseek'){
@@ -5516,6 +5527,45 @@ socket.on('entrou_na_sala', (data)=>{
 
 socket.on('erro', (message)=>{
   toast('Erro: '+message,'#ff4d4d');
+});
+
+/* ============================================================
+   SINCRONIZAÇÃO DE JOGADORES REMOTOS (multiplayer real)
+============================================================ */
+const REMOTE_COLORS = [0xff5566, 0x55ffaa, 0xffcc44, 0xaa66ff, 0x44ccff, 0xff9944];
+function colorForId(id){
+  let h = 0;
+  for(let i=0;i<id.length;i++) h = (h*31 + id.charCodeAt(i)) >>> 0;
+  return REMOTE_COLORS[h % REMOTE_COLORS.length];
+}
+function spawnRemotePlayer(id){
+  if(remotePlayers[id] || !scene) return;
+  const mesh = buildBotMesh(colorForId(id));
+  scene.add(mesh);
+  remotePlayers[id] = { mesh, targetPos: mesh.position.clone(), targetRotY: 0 };
+}
+function removeRemotePlayer(id){
+  const rp = remotePlayers[id];
+  if(rp){ scene.remove(rp.mesh); delete remotePlayers[id]; }
+}
+function clearRemotePlayers(){
+  Object.keys(remotePlayers).forEach(removeRemotePlayer);
+}
+function updateRemotePlayers(dt){
+  Object.values(remotePlayers).forEach(rp=>{
+    rp.mesh.position.lerp(rp.targetPos, Math.min(1, dt*8));
+    rp.mesh.rotation.y += (rp.targetRotY - rp.mesh.rotation.y) * Math.min(1, dt*8);
+  });
+}
+socket.on('posicaoJogador', (data)=>{
+  if(!data || data.id===socket.id) return;
+  if(!remotePlayers[data.id]) spawnRemotePlayer(data.id);
+  const rp = remotePlayers[data.id];
+  rp.targetPos.set(data.x, 0, data.z);
+  rp.targetRotY = data.rotY||0;
+});
+socket.on('jogador_saiu', (data)=>{
+  if(data && data.id) removeRemotePlayer(data.id);
 });
 
 document.getElementById('rrContinueBtn').addEventListener('click', ()=>{ if(window.__roleRevealCallback) window.__roleRevealCallback(); });

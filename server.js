@@ -18,6 +18,7 @@ io.on('connection', (socket) => {
     }
     salas[nomeSala] = { senha, jogadores: [socket.id] };
     socket.join(nomeSala);
+    socket.data.nomeSala = nomeSala;
     socket.emit('sala_criada', { nomeSala });
     io.emit('lista_salas', Object.keys(salas));
   });
@@ -34,14 +35,26 @@ io.on('connection', (socket) => {
     }
     sala.jogadores.push(socket.id);
     socket.join(nomeSala);
+    socket.data.nomeSala = nomeSala;
     socket.emit('entrou_na_sala', { nomeSala });
     io.to(nomeSala).emit('jogador_entrou', { id: socket.id });
   });
 
+  // Repassa a posição do jogador para todos os outros da mesma sala
+  socket.on('atualizarPosicao', ({ x, z, rotY }) => {
+    const nomeSala = socket.data.nomeSala;
+    if (!nomeSala) return;
+    socket.to(nomeSala).emit('posicaoJogador', { id: socket.id, x, z, rotY });
+  });
+
   socket.on('disconnect', () => {
-    for (const nomeSala in salas) {
-      salas[nomeSala].jogadores = salas[nomeSala].jogadores.filter(id => id !== socket.id);
-      if (salas[nomeSala].jogadores.length === 0) delete salas[nomeSala];
+    const nomeSala = socket.data.nomeSala;
+    if (nomeSala) {
+      io.to(nomeSala).emit('jogador_saiu', { id: socket.id });
+    }
+    for (const nomeSala2 in salas) {
+      salas[nomeSala2].jogadores = salas[nomeSala2].jogadores.filter(id => id !== socket.id);
+      if (salas[nomeSala2].jogadores.length === 0) delete salas[nomeSala2];
     }
     io.emit('lista_salas', Object.keys(salas));
   });

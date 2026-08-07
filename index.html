@@ -3277,12 +3277,9 @@ function beginImpostorRound(){
       killCooldown: 12+Math.random()*8, investigateCooldown: 14+Math.random()*10, speed: 2.0+Math.random()*0.5
     });
   }
-  const taskPool = shuffleArr(stations.map((s,i)=>i)).slice(0,3);
   impostor = {
-    bots, stations, bodies:[], playerRole,
-    myTasks: playerRole==='crew' ? taskPool : [],
-    tasksDone: playerRole==='crew' ? [false,false,false] : [],
-    meetingCooldown:0, votes:{}
+    bots, bodies:[], playerRole,
+    meetingCooldown:0, votes:{}, kickCooldown:0
   };
 
   player.position.set(0,0,0);
@@ -3292,7 +3289,7 @@ function beginImpostorRound(){
   camCurrentPos.set(0,6,10);
   if(companionMesh) companionMesh.position.set(1.2,2.2,-1.2);
 
-  document.getElementById('btnAttack').textContent = playerRole==='crew' ? 'AGIR' : (playerRole==='impostor' ? 'ELIMINAR' : 'INVESTIGAR');
+  document.getElementById('btnAttack').textContent = playerRole==='crew' ? '🦵 CHUTAR' : (playerRole==='impostor' ? 'ELIMINAR' : 'INVESTIGAR');
   document.getElementById('btnDash').textContent = 'REUNIÃO';
   setImpostorHudVisible(true);
   updateImpostorHud();
@@ -3323,14 +3320,10 @@ function updateImpostorHud(){
   const list = document.getElementById('taskList');
   list.innerHTML = '';
   if(impostor.playerRole==='crew'){
-    document.querySelector('.taskPanelTitle').textContent = 'TAREFAS';
-    impostor.myTasks.forEach((idx,i)=>{
-      const st = impostor.stations[idx];
-      const div = document.createElement('div');
-      div.className = 'taskItem'+(impostor.tasksDone[i]?' done':'');
-      div.textContent = (impostor.tasksDone[i]?'✅ ':'⬜ ')+st.name;
-      list.appendChild(div);
-    });
+    document.querySelector('.taskPanelTitle').textContent = 'AÇÃO';
+    const div = document.createElement('div'); div.className='taskItem';
+    div.textContent = 'Chute alguém por perto para atordoá-lo! 🦵';
+    list.appendChild(div);
   } else if(impostor.playerRole==='impostor'){
     document.querySelector('.taskPanelTitle').textContent = 'MISSÃO';
     const div = document.createElement('div'); div.className='taskItem';
@@ -3344,6 +3337,17 @@ function updateImpostorHud(){
   }
   const aliveCrew = impostor.bots.filter(b=>b.alive).length;
   document.getElementById('aliveCountTag').textContent = (aliveCrew+1)+' vivos a bordo';
+
+  if(impostor.playerRole==='crew'){
+    const btn = document.getElementById('btnAttack');
+    if(impostor.kickCooldown>0){
+      btn.textContent = '🦵 '+Math.ceil(impostor.kickCooldown)+'s';
+      btn.style.opacity = 0.45;
+    } else {
+      btn.textContent = '🦵 CHUTAR';
+      btn.style.opacity = 1;
+    }
+  }
 }
 
 function findIsolatedTarget(ib){
@@ -3482,7 +3486,14 @@ function botInvestigate(sheriffBot, target){
 
 function updateImpostorMode(dt){
   if(!impostor) return;
-  for(const bot of impostor.bots){ if(bot.alive){ updateBotAI(bot, dt); updateCreatureEyes(bot.mesh, dt); } }
+  for(const bot of impostor.bots){
+    if(!bot.alive){
+      if(bot.starsRing){ scene.remove(bot.starsRing); bot.starsRing=null; }
+      continue;
+    }
+    if(bot.dizzy){ updateDizzy(bot, dt); updateCreatureEyes(bot.mesh, dt); }
+    else { updateBotAI(bot, dt); updateCreatureEyes(bot.mesh, dt); }
+  }
   for(const b of impostor.bodies){
     if(!b.seen && b.mesh.position.distanceTo(player.position) < 6){
       b.seen = true;
@@ -3491,6 +3502,7 @@ function updateImpostorMode(dt){
     }
   }
   if(impostor.meetingCooldown>0) impostor.meetingCooldown -= dt;
+  if(impostor.kickCooldown>0) impostor.kickCooldown -= dt;
   updateImpostorHud();
 }
 
@@ -3528,6 +3540,67 @@ function playerInvestigate(bot){
   }
 }
 
+/* ---- Chute (nocaute temporário) ---- */
+const KICK_COOLDOWN_TIME = 15;
+const KICK_DIZZY_TIME = 5;
+function findKickTarget(range){
+  let best=null, bestD=Infinity;
+  impostor.bots.forEach(b=>{
+    if(!b.alive || b.dizzy) return;
+    const d = b.mesh.position.distanceTo(player.position);
+    if(d<range && d<bestD){ best=b; bestD=d; }
+  });
+  return best;
+}
+function createStarsRing(){
+  const group = new THREE.Group();
+  const starMat = new THREE.MeshStandardMaterial({ color:0xffe066, emissive:0xffcc00, emissiveIntensity:1.4, metalness:0.2, roughness:0.3 });
+  for(let i=0;i<4;i++){
+    const star = new THREE.Mesh(new THREE.OctahedronGeometry(0.09,0), starMat);
+    const ang = (i/4)*Math.PI*2;
+    star.position.set(Math.cos(ang)*0.35, 0, Math.sin(ang)*0.35);
+    group.add(star);
+  }
+  return group;
+}
+function knockDownBot(bot){
+  const mesh = bot.mesh;
+  bot.dizzy = true;
+  bot.dizzyTimer = KICK_DIZZY_TIME;
+  bot._dizzyPrevRotX = mesh.rotation.x;
+  bot._dizzyPrevPosY = mesh.position.y;
+  mesh.rotation.x = Math.PI/2;
+  mesh.position.y = 0.22;
+  bot.starsRing = createStarsRing();
+  bot.starsRing.position.set(mesh.position.x, 1.4, mesh.position.z);
+  scene.add(bot.starsRing);
+}
+function wakeUpBot(bot){
+  const mesh = bot.mesh;
+  bot.dizzy = false;
+  mesh.rotation.x = bot._dizzyPrevRotX||0;
+  mesh.position.y = bot._dizzyPrevPosY||0;
+  if(bot.starsRing){ scene.remove(bot.starsRing); bot.starsRing=null; }
+}
+function updateDizzy(bot, dt){
+  bot.dizzyTimer -= dt;
+  if(bot.starsRing){
+    bot.starsRing.rotation.y += dt*4;
+    bot.starsRing.position.set(bot.mesh.position.x, 1.4, bot.mesh.position.z);
+  }
+  if(bot.dizzyTimer<=0) wakeUpBot(bot);
+}
+function doKick(){
+  if(impostor.kickCooldown>0){ toast('Chute recarregando... 🦵','#9aa4b8'); return; }
+  const target = findKickTarget(2.6);
+  if(!target){ toast('Ninguém por perto para chutar','#9aa4b8'); return; }
+  knockDownBot(target);
+  toast('Você chutou '+target.name+'! Ele ficou tonto. 🦵💫','#ffcc4d');
+  sfxHit(); camShake = Math.max(camShake,0.15);
+  impostor.kickCooldown = KICK_COOLDOWN_TIME;
+  updateImpostorHud();
+}
+
 function doInteract(){
   if(gameMode!=='impostor' || !running || gameOver) return;
   const nearBody = impostor.bodies.find(b=> !b.reported && b.mesh.position.distanceTo(player.position) < 2.4);
@@ -3545,20 +3618,7 @@ function doInteract(){
     toast('Aproxime-se de alguém para investigar', '#9aa4b8');
     return;
   }
-  for(let i=0;i<impostor.myTasks.length;i++){
-    if(impostor.tasksDone[i]) continue;
-    const st = impostor.stations[impostor.myTasks[i]];
-    const stPos = new THREE.Vector3(st.x, 0, st.z);
-    if(stPos.distanceTo(player.position) < 5.5){
-      impostor.tasksDone[i] = true;
-      toast('TAREFA CONCLUÍDA: '+st.name, '#2fff8a');
-      sfxPickup(600);
-      updateImpostorHud();
-      if(impostor.tasksDone.every(Boolean)) triggerCrewWinTasks();
-      return;
-    }
-  }
-  toast('Nada para fazer por aqui', '#9aa4b8');
+  doKick();
 }
 function doCallMeeting(){
   if(gameMode!=='impostor' || !running || gameOver) return;

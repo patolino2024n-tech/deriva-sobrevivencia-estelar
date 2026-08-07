@@ -5490,12 +5490,12 @@ document.querySelectorAll('#createRoomScreen .counterBtn').forEach(btn=>{
 document.getElementById('confirmCreateRoomBtn').addEventListener('click', ()=>{
   const name = document.getElementById('createRoomName').value.trim();
   if(!name){ toast('Digite um nome pra sala! 🚧','#ffcc4d'); return; }
-  socket.emit('createRoom', { playerName: profile.name, roomName: name });
+  socket.emit('criar_sala', { nomeSala: name, senha: '' });
 });
 
-socket.on('roomCreated', (data)=>{
-  currentRoomId = data.roomId;
-  toast('Sala "'+data.roomName+'" criada!','#3ff0ff');
+socket.on('sala_criada', (data)=>{
+  currentRoomId = data.nomeSala;
+  toast('Sala "'+data.nomeSala+'" criada!','#3ff0ff');
   hideAllRoomScreens();
   initAudio(); startImpostorGame();
 });
@@ -5504,17 +5504,17 @@ document.getElementById('joinRoomBackBtn').addEventListener('click', ()=> showRo
 document.getElementById('confirmJoinRoomBtn').addEventListener('click', ()=>{
   const name = document.getElementById('joinRoomName').value.trim();
   if(!name){ toast('Digite o nome da sala! 🚧','#ffcc4d'); return; }
-  socket.emit('joinRoom', { roomId: name, playerName: profile.name });
+  socket.emit('entrar_sala', { nomeSala: name, senha: '' });
 });
 
-socket.on('roomJoined', (data)=>{
-  currentRoomId = data.roomId;
+socket.on('entrou_na_sala', (data)=>{
+  currentRoomId = data.nomeSala;
   toast('Entrando na sala...','#3ff0ff');
   hideAllRoomScreens();
   initAudio(); startImpostorGame();
 });
 
-socket.on('joinError', (message)=>{
+socket.on('erro', (message)=>{
   toast('Erro: '+message,'#ff4d4d');
 });
 
